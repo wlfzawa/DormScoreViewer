@@ -1,0 +1,82 @@
+<ci:SettingsPageBase x:Class="DormScoreViewer.SettingsPages.DormScoreSettingsPage"
+                     xmlns="https://github.com/avaloniaui"
+                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+                     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                     xmlns:ci="http://classisland.tech/schemas/xaml/core"
+                     mc:Ignorable="d"
+                     d:DesignWidth="700" d:DesignHeight="600">
+
+    <ScrollViewer>
+        <StackPanel Margin="16" Spacing="6">
+
+            <TextBlock Text="数据源"
+                       FontSize="16"
+                       FontWeight="SemiBold"
+                       Margin="0,0,0,4" />
+
+            <TextBlock Text="校园网站点根地址（结尾不要带斜杠）"
+                       FontSize="12"
+                       Opacity="0.7" />
+            <TextBox Text="{Binding BaseUrl}" />
+
+            <TextBlock Text="寝室内务栏目列表页路径"
+                       FontSize="12"
+                       Opacity="0.7" />
+            <TextBox Text="{Binding ListPath}" />
+
+            <TextBlock Text="公告详情页 URL 模板（{0} 为文章 ID）"
+                       FontSize="12"
+                       Opacity="0.7" />
+            <TextBox Text="{Binding ArticleUrlPattern}" />
+
+            <TextBlock Text="关注的寝室号"
+                       FontSize="16"
+                       FontWeight="SemiBold"
+                       Margin="0,12,0,4" />
+
+            <TextBlock Text="用逗号、空格或分号分隔，例如：101, 205, 307。比较时会忽略非数字字符。"
+                       FontSize="12"
+                       Opacity="0.7"
+                       TextWrapping="Wrap" />
+            <TextBox Text="{Binding TrackedRooms}" />
+
+            <TextBlock Text="网络"
+                       FontSize="16"
+                       FontWeight="SemiBold"
+                       Margin="0,12,0,4" />
+
+            <TextBlock Text="单次请求超时（秒）"
+                       FontSize="12"
+                       Opacity="0.7" />
+            <TextBox Text="{Binding TimeoutText}" />
+
+            <TextBlock Text="组件自动刷新间隔（分钟，0 为不自动刷新）"
+                       FontSize="12"
+                       Opacity="0.7" />
+            <TextBox Text="{Binding RefreshText}" />
+
+            <TextBlock Text="操作"
+                       FontSize="16"
+                       FontWeight="SemiBold"
+                       Margin="0,12,0,4" />
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="测试连接" Click="OnTestConnectionClick" />
+                <Button Content="清空本地缓存" Click="OnClearCacheClick" />
+            </StackPanel>
+
+            <TextBlock Text="{Binding StatusText}"
+                       FontSize="12"
+                       Opacity="0.75"
+                       TextWrapping="Wrap"
+                       Margin="0,6,0,0" />
+
+            <TextBlock Text="{Binding CacheInfoText}"
+                       FontSize="12"
+                       Opacity="0.55"
+                       Margin="0,2,0,0" />
+
+        </StackPanel>
+    </ScrollViewer>
+</ci:SettingsPageBase>

@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <!-- net8.0 是兼容面最广的选择：net8.0 程序集可被 net8.0 / net9.0 / net10.0
+             的 ClassIsland 2.x 运行时加载。若 ClassIsland 是 2.1+（net10.0）也可用，
+             但若你确定要面向最新版，可改为 net10.0-windows + PluginSdk 2.1.1.1。 -->
+        <TargetFramework>net8.0-windows</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <EnableDynamicLoading>True</EnableDynamicLoading>
+        <EnableWindowsTargeting>true</EnableWindowsTargeting>
+        <RootNamespace>DormScoreViewer</RootNamespace>
+        <AssemblyName>DormScoreViewer</AssemblyName>
+        <Version>1.0.0.0</Version>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="ClassIsland.PluginSdk" Version="2.0.4">
+            <ExcludeAssets>runtime; native</ExcludeAssets>
+        </PackageReference>
+        <!-- 校园网公告页多为 GB2312/GBK 编码，.NET 需要此提供程序才能识别 -->
+        <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Update="manifest.yml">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+        <None Update="README.md">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+        <None Update="icon.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
+
+</Project>

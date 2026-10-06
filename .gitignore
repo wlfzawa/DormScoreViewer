@@ -1,0 +1,28 @@
+## .NET / 编译产物
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+cipx/
+*.cipx
+
+## Visual Studio / Rider / VS Code
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userprefs
+
+## ClassIsland 插件运行期生成
+cache.json
+Settings.json
+*.log
+
+## 打包脚本输出
+*.zip
+
+## 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
