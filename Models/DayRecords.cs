@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace DormScoreViewer.Models;
@@ -12,6 +13,13 @@ public class DayRecords
 
     /// <summary>日期标签（公告标题）。</summary>
     public string Label { get; set; } = "";
+
+    /// <summary>
+    /// 该篇扣分公告的发布时间（从文章页解析）。
+    /// 用于主界面「更新于」显示——比本地抓取时刻更有意义（反映数据本身的新鲜度）。
+    /// 解析不到时为 null，界面会退回显示本地刷新时刻。
+    /// </summary>
+    public DateTime? PublishedAt { get; set; }
 
     /// <summary>这一天的扣分明细。</summary>
     public List<DormRecord> Records { get; set; } = new();

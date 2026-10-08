@@ -1,10 +1,10 @@
 id: dorm.score.viewer
 name: 寝室扣分查看
-description: 从校园网寝室内务栏目抓取扣分公告，在主界面显示关注寝室的扣分情况，支持多日汇总与离线缓存。
+description: 从校园网寝室内务栏目抓取扣分公告，在主界面逐条轮播关注班级寝室的扣分情况，支持可调字号、多日汇总与离线缓存。
 entranceAssembly: "DormScoreViewer.dll"
-url: https://github.com/ClassIsland/ClassIsland
-author: DormScoreViewer
-version: 1.0.0.0
+url: https://github.com/wlfzawa/DormScoreViewer
+author: wlfzawa
+version: 1.1.0.0
 apiVersion: 2.0.0.0
 supportedOSPlatforms:
   - Windows

@@ -60,6 +60,24 @@ public class DormScoreService
         @"<meta[^>]*charset\s*=\s*['""]?\s*([a-zA-Z0-9\-_]+)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    /// <summary>
+    /// 文章页中常见的发布时间写法：2026-10-08 12:30 / 2026/10/08 / 2026年10月08日。
+    /// </summary>
+    /// <remarks>
+    /// 「日?」前必须用<strong>惰性</strong>的 <c>\s*?</c>：若写成贪婪的 <c>\s*</c>，
+    /// 它会先把「日期与时间之间的空格」吃掉，随后可选的时间组因只剩数字而匹配失败，
+    /// 且引擎不再回溯——结果是「2026-10-08 14:35」只能解析出日期、丢掉时分。
+    /// </remarks>
+    private static readonly Regex PublishFullDateRegex = new(
+        @"(?<y>\d{4})\s*[-/年.]\s*(?<m>\d{1,2})\s*[-/月.]\s*(?<d>\d{1,2})\s*?日?" +
+        @"(?:\s*[T ]\s*(?<hh>\d{1,2}):(?<mm>\d{2})(?::(?<ss>\d{2}))?)?",
+        RegexOptions.Compiled);
+
+    /// <summary>文章页/标题中只有月日时的写法：10月8日 / 10-08。</summary>
+    private static readonly Regex PublishMonthDayRegex = new(
+        @"(?<m>\d{1,2})\s*(?:月|[-/.])\s*(?<d>\d{1,2})\s*日?",
+        RegexOptions.Compiled);
+
     /// <summary>候选编码，按顺序严格尝试。</summary>
     private static readonly string[] CandidateEncodings = { "GB2312", "GBK", "UTF-8" };
 
@@ -145,6 +163,9 @@ public class DormScoreService
                 var html = await FetchHtmlAsync(url, settings.TimeoutSeconds, cancellationToken).ConfigureAwait(false);
                 var records = ParseArticle(html, article.Title);
 
+                // 解析文章发布时间，供主界面「更新于」显示
+                day.PublishedAt = ExtractPublishTime(html);
+
                 if (records.Count > 0)
                 {
                     day.Records = records;
@@ -181,7 +202,14 @@ public class DormScoreService
         }
 
         if (cacheDirty) SaveCache();
-        LastUpdated = DateTime.Now;
+
+        // 「最近一次更新」优先取本次抓到的最新一篇公告的发布时间，
+        // 这样主界面显示的是数据本身的新鲜度，而非本地抓取时刻。
+        var latestPublish = result
+            .Where(d => d.PublishedAt.HasValue)
+            .Max(d => d.PublishedAt!.Value);
+
+        LastUpdated = result.Any(d => d.PublishedAt.HasValue) ? latestPublish : DateTime.Now;
         CacheChanged?.Invoke(this, EventArgs.Empty);
         return result;
     }
@@ -338,6 +366,77 @@ public class DormScoreService
         return s.Replace("\u00a0", " ");
     }
 
+    // ------------------------------------------------------------ 发布时间解析
+
+    /// <summary>
+    /// 从文章页 HTML 中解析发布时间。
+    /// </summary>
+    /// <remarks>
+    /// 先在页面靠前区域（&lt;head&gt; 与正文开头，发布时间一般在此）找「年-月-日 + 时:分」，
+    /// 找不到再退化到只有月日的写法；月日会按「不晚于今天」的原则补全年份，
+    /// 避免把 12 月的公告在 1 月解析成未来日期。
+    /// </remarks>
+    public static DateTime? ExtractPublishTime(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return null;
+
+        // 只扫描靠前的一段，兼顾准确与性能
+        var scope = html.Length > 8000 ? html[..8000] : html;
+
+        var full = PublishFullDateRegex.Match(scope);
+        if (full.Success && TryBuildDate(full, out var exact))
+        {
+            return exact;
+        }
+
+        var md = PublishMonthDayRegex.Match(scope);
+        if (md.Success && TryBuildDate(md, out var inferred))
+        {
+            return inferred;
+        }
+
+        return null;
+    }
+
+    private static bool TryBuildDate(Match m, out DateTime result)
+    {
+        result = default;
+
+        if (!int.TryParse(m.Groups["d"].Value, out var day)) return false;
+
+        var hasMonth = int.TryParse(m.Groups["m"].Value, out var month);
+        if (!hasMonth) return false;
+
+        var hasYear = m.Groups["y"].Success && int.TryParse(m.Groups["y"].Value, out var year);
+        if (!hasYear)
+        {
+            // 只有月日：以「最近已过去的该月日」为准
+            year = DateTime.Today.Year;
+            if (month > DateTime.Today.Month ||
+                (month == DateTime.Today.Month && day > DateTime.Today.Day))
+            {
+                year -= 1;
+            }
+        }
+
+        var hour = 0;
+        var minute = 0;
+        var second = 0;
+        if (m.Groups["hh"].Success) int.TryParse(m.Groups["hh"].Value, out hour);
+        if (m.Groups["mm"].Success) int.TryParse(m.Groups["mm"].Value, out minute);
+        if (m.Groups["ss"].Success) int.TryParse(m.Groups["ss"].Value, out second);
+
+        try
+        {
+            result = new DateTime(year, month, day, hour, minute, second);
+            return true;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+    }
+
     // ------------------------------------------------------------ 编码
 
     /// <summary>
@@ -388,9 +487,11 @@ public class DormScoreService
     // ------------------------------------------------------------ 汇总
 
     /// <summary>
-    /// 按寝室汇总多日数据，按总扣分升序（扣得最多排最前）。
+    /// 按班级汇总多日数据，按总扣分升序（扣得最多排最前）。
     /// </summary>
-    public static List<RoomAggregate> AggregateByRoom(IEnumerable<DayRecords> days, HashSet<string> trackedRooms)
+    /// <param name="days">多日数据。</param>
+    /// <param name="trackedClasses">归一化后的关注班级集合，用于标记 <see cref="RoomAggregate.IsTracked"/>。</param>
+    public static List<RoomAggregate> AggregateByRoom(IEnumerable<DayRecords> days, HashSet<string> trackedClasses)
     {
         var byRoom = new Dictionary<(string ClassName, string Room), RoomAggregate>();
         var daySet = new Dictionary<(string ClassName, string Room), HashSet<string>>();
@@ -410,7 +511,7 @@ public class DormScoreService
                 agg.TotalScore += r.Score;
                 agg.Count += 1;
                 daySet[key].Add(day.Label);
-                agg.IsTracked = trackedRooms.Contains(NormalizeRoom(r.Room));
+                agg.IsTracked = trackedClasses.Contains(NormalizeClassName(r.ClassName));
             }
         }
 
@@ -465,6 +566,28 @@ public class DormScoreService
 
         var trimmed = digits.TrimStart('0');
         return trimmed.Length == 0 ? digits : trimmed;
+    }
+
+    /// <summary>
+    /// 把班级名规整为便于比较的形式：去掉空白、去掉「班」字后缀，
+    /// 并把全角括号统一为半角。例如「高一(1)班」「高一（1）」「 高一 (1) 班 」
+    /// 都会归一化为「高一(1)」。
+    /// </summary>
+    /// <remarks>
+    /// 保留年级前缀（如「高一」），因为不同年级可能存在相同的班级序号。
+    /// 用户若只填「1班」这类不含年级的写法，则不与「高一(1)」匹配——
+    /// 这是有意为之，避免把高二/高三的 1 班一并命中。
+    /// </remarks>
+    public static string NormalizeClassName(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "";
+
+        var t = s.Trim();
+        t = t.Replace("（", "(").Replace("）", ")");
+        t = t.Replace(" ", "").Replace("\t", "").Replace("\u00a0", "");
+        // 去掉结尾的「班」字
+        if (t.EndsWith("班")) t = t[..^1];
+        return t;
     }
 
     private static string CombineUrl(string baseUrl, string path)

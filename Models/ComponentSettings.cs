@@ -6,7 +6,8 @@ namespace DormScoreViewer.Models;
 public class ComponentSettings
 {
     private int _recentDays = 1;
-    private int _maxRows = 5;
+    private int _rotateSeconds = 5;
+    private double _fontSize = 0; // 0 = 自动
 
     /// <summary>汇总最近 N 天的扣分数据（1-60）。</summary>
     public int RecentDays
@@ -15,19 +16,44 @@ public class ComponentSettings
         set => _recentDays = value < 1 ? 1 : (value > 60 ? 60 : value);
     }
 
-    /// <summary>只显示关注的寝室；关闭则显示全校排名前列的寝室。</summary>
-    public bool OnlyTrackedRooms { get; set; } = true;
+    /// <summary>只显示关注班级的寝室；关闭则显示全部。</summary>
+    public bool OnlyTrackedClasses { get; set; } = true;
 
-    /// <summary>最多显示的行数（1-50）。</summary>
-    public int MaxRows
+    /// <summary>
+    /// 轮播间隔（秒）。逐条轮播时，每隔这么多秒切换到下一条。
+    /// 设为 0 表示关闭轮播，一次列出全部。
+    /// </summary>
+    public int RotateSeconds
     {
-        get => _maxRows < 1 ? 1 : (_maxRows > 50 ? 50 : _maxRows);
-        set => _maxRows = value < 1 ? 1 : (value > 50 ? 50 : value);
+        get => _rotateSeconds < 0 ? 0 : _rotateSeconds;
+        set => _rotateSeconds = value < 0 ? 0 : value;
     }
 
-    /// <summary>是否显示班级列。</summary>
-    public bool ShowClassName { get; set; } = true;
+    /// <summary>
+    /// 字号（像素）。0 表示自动（随组件尺寸自适应）。
+    /// 常用取值：14（小）、18（中）、24（大）、32（特大）。
+    /// </summary>
+    public double FontSize
+    {
+        get => _fontSize < 0 ? 0 : _fontSize;
+        set => _fontSize = value < 0 ? 0 : value;
+    }
 
-    /// <summary>是否显示扣分原因。</summary>
-    public bool ShowReason { get; set; } = true;
+    // ------------------------------------------------------------ 顶部元素开关
+    //
+    // 组件顶部有两处「小字」：标题行（标题 + 更新时间）与范围行（近 N 天 · 轮播进度）。
+    // 它们会占用组件的固定高度，把下方真正的扣分内容挤出可视区（表现为内容被小字遮挡/裁掉）。
+    // 下面三个开关可分别隐藏它们，把有限高度让给扣分内容；全部关闭时内容独占整个组件。
+
+    /// <summary>显示标题「寝室扣分」。</summary>
+    public bool ShowTitle { get; set; } = true;
+
+    /// <summary>显示更新时间（取扣分文章的发布时间）。</summary>
+    public bool ShowUpdateTime { get; set; } = true;
+
+    /// <summary>显示范围行（近 N 天 · 我的班级 · 第 n/N 条）。</summary>
+    public bool ShowScope { get; set; } = true;
+
+    /// <summary>顶部标题行是否整体可见（标题或更新时间任一开启即显示该行）。</summary>
+    public bool ShowHeaderLine => ShowTitle || ShowUpdateTime;
 }

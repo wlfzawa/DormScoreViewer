@@ -30,16 +30,16 @@
                        Opacity="0.7" />
             <TextBox Text="{Binding ArticleUrlPattern}" />
 
-            <TextBlock Text="关注的寝室号"
+            <TextBlock Text="关注的班级"
                        FontSize="16"
                        FontWeight="SemiBold"
                        Margin="0,12,0,4" />
 
-            <TextBlock Text="用逗号、空格或分号分隔，例如：101, 205, 307。比较时会忽略非数字字符。"
+            <TextBlock Text="用逗号、空格或分号分隔，例如：高一(1)班, 高三(2)班。比较时忽略空格与「班」字，全角括号会自动转半角。"
                        FontSize="12"
                        Opacity="0.7"
                        TextWrapping="Wrap" />
-            <TextBox Text="{Binding TrackedRooms}" />
+            <TextBox Text="{Binding TrackedClasses}" />
 
             <TextBlock Text="网络"
                        FontSize="16"

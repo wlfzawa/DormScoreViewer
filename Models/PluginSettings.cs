@@ -11,7 +11,7 @@ public class PluginSettings : ObservableObject
     private string _baseUrl = "http://10.132.11.5";
     private string _listPath = "/news/?list_42.html";
     private string _articleUrlPattern = "/news/?{0}.html";
-    private string _trackedRooms = "";
+    private string _trackedClasses = "";
     private int _timeoutSeconds = 12;
     private int _autoRefreshMinutes = 30;
 
@@ -36,11 +36,11 @@ public class PluginSettings : ObservableObject
         set => SetProperty(ref _articleUrlPattern, value);
     }
 
-    /// <summary>关注的寝室号，用逗号/空格/分号分隔。比较时会忽略非数字字符。</summary>
-    public string TrackedRooms
+    /// <summary>关注的班级，用逗号/空格/分号分隔。匹配时会忽略空白与常见修饰（如「高一(1)班」与「1班」）。</summary>
+    public string TrackedClasses
     {
-        get => _trackedRooms;
-        set => SetProperty(ref _trackedRooms, value);
+        get => _trackedClasses;
+        set => SetProperty(ref _trackedClasses, value);
     }
 
     /// <summary>单次 HTTP 请求超时秒数。</summary>
@@ -58,16 +58,16 @@ public class PluginSettings : ObservableObject
     }
 
     /// <summary>
-    /// 把 <see cref="TrackedRooms"/> 解析为归一化后的寝室号集合。
+    /// 把 <see cref="TrackedClasses"/> 解析为归一化后的班级集合。
     /// </summary>
-    public HashSet<string> GetTrackedRoomSet()
+    public HashSet<string> GetTrackedClassSet()
     {
         var set = new HashSet<string>();
-        if (string.IsNullOrWhiteSpace(TrackedRooms)) return set;
+        if (string.IsNullOrWhiteSpace(TrackedClasses)) return set;
 
-        foreach (var part in TrackedRooms.Split(',', '，', ';', '；', ' ', '\t', '\n', '\r'))
+        foreach (var part in TrackedClasses.Split(',', '，', ';', '；', ' ', '\t', '\n', '\r'))
         {
-            var normalized = DormScoreService.NormalizeRoom(part);
+            var normalized = DormScoreService.NormalizeClassName(part);
             if (!string.IsNullOrEmpty(normalized)) set.Add(normalized);
         }
         return set;

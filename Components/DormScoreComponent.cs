@@ -21,26 +21,34 @@ using Microsoft.Extensions.Logging;
 namespace DormScoreViewer.Components;
 
 /// <summary>
-/// 主界面组件：显示关注寝室的扣分情况。
+/// 主界面组件：逐条轮播「关注班级」寝室的扣分情况。
+/// 默认格式为「寝室号  扣分」（如 2114  -1）。
 /// 用纯代码构建界面（不用 .axaml），彻底规避外部插件 XAML 编译/加载的不确定性。
 /// </summary>
 [ComponentInfo(
     "B7F3C1E4-5A2D-4E8B-9C61-3D0A7F82E5B1",
     "寝室扣分",
     "",
-    "显示关注寝室在校园网「寝室内务」栏目中的扣分情况，支持多日汇总。点击组件手动刷新。")]
+    "轮播显示关注班级寝室的扣分情况，格式为「寝室号 扣分」。点击组件手动刷新。")]
 public class DormScoreComponent : ComponentBase<ComponentSettings>
 {
     private readonly TextBlock _titleBlock;
-    private readonly TextBlock _totalBlock;
     private readonly TextBlock _scopeBlock;
     private readonly TextBlock _statusBlock;
-    private readonly TextBlock _emptyBlock;
     private readonly StackPanel _rowsPanel;
 
-    private DispatcherTimer? _timer;
+    /// <summary>标题行容器（含标题与更新时间），两者都隐藏时整行不占高度。</summary>
+    private Grid? _headerPanel;
+
+    // 轮播定时器（切条）与自动刷新定时器（下次抓取）
+    private DispatcherTimer? _rotateTimer;
+    private DispatcherTimer? _refreshTimer;
     private CancellationTokenSource? _cts;
     private bool _refreshing;
+
+    // 当前要展示的条目（一次轮播一条）
+    private List<RotationItem> _queue = new();
+    private int _queueIndex;
 
     private static ILogger? Log => IAppHost.TryGetService<ILogger<DormScoreComponent>>();
 
@@ -48,7 +56,7 @@ public class DormScoreComponent : ComponentBase<ComponentSettings>
 
     public DormScoreComponent()
     {
-        (_titleBlock, _totalBlock, _scopeBlock, _statusBlock, _emptyBlock, _rowsPanel) = BuildUi();
+        (_titleBlock, _scopeBlock, _statusBlock, _rowsPanel) = BuildUi();
 
         // 点击组件手动刷新
         PointerPressed += (_, _) => _ = RefreshAsync();
@@ -63,123 +71,156 @@ public class DormScoreComponent : ComponentBase<ComponentSettings>
 
     // ------------------------------------------------------------ 界面构建
 
-    private (TextBlock, TextBlock, TextBlock, TextBlock, TextBlock, StackPanel) BuildUi()
+    private (TextBlock, TextBlock, TextBlock, StackPanel) BuildUi()
     {
-        var title = new TextBlock { Text = "寝室扣分", FontSize = 12, Opacity = 0.6 };
+        var title = new TextBlock
+        {
+            Text = "寝室扣分",
+            FontSize = 12,
+            Opacity = 0.6,
+            VerticalAlignment = VerticalAlignment.Center
+        };
         var status = new TextBlock
         {
             Text = "点击刷新",
             FontSize = 11,
             Opacity = 0.5,
+            VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right
         };
 
+        // 标题行：标题与更新时间各自独立显隐，两行都关时整行不占高度
         var header = new Grid { ColumnDefinitions = ColumnDefinitions.Parse("*,Auto") };
         Grid.SetColumn(title, 0);
         Grid.SetColumn(status, 1);
         header.Children.Add(title);
         header.Children.Add(status);
 
-        var total = new TextBlock
-        {
-            Text = "--",
-            FontSize = 24,
-            FontWeight = FontWeight.SemiBold,
-            Foreground = Brushes.Gray
-        };
         var scope = new TextBlock
         {
             Text = "",
             FontSize = 11,
             Opacity = 0.6,
-            VerticalAlignment = VerticalAlignment.Bottom
+            TextTrimming = TextTrimming.CharacterEllipsis
         };
-        var summary = new Grid
-        {
-            Margin = new Thickness(0, 2, 0, 4),
-            ColumnDefinitions = ColumnDefinitions.Parse("Auto,*,Auto")
-        };
-        Grid.SetColumn(total, 0);
-        Grid.SetColumn(scope, 2);
-        summary.Children.Add(total);
-        summary.Children.Add(scope);
 
+        // 逐条轮播的容器：每次只放一条记录
         var rows = new StackPanel { Spacing = 2 };
 
-        var empty = new TextBlock
-        {
-            Text = "",
-            FontSize = 11,
-            Opacity = 0.6,
-            TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 4, 0, 0)
-        };
-
         // 最外层用竖向 StackPanel：所有区块按内容自然撑开。
-        // 注意：绝不能用带“*”的行定义——在高度自适应的组件容器里，“*”行会塌缩为 0 高度，
-        // 导致扣分明细整块消失（这正是之前“只显示标题、不显示内容”的根因）。
-        var root = new StackPanel
-        {
-            Margin = new Thickness(10, 8),
-            Spacing = 0
-        };
+        // 注意：绝不能用带「*」的行定义——在高度自适应的组件容器里，「*」行会塌缩为 0 高度，
+        // 导致内容整块消失（这正是之前「只显示标题、不显示内容」的根因）。
+        var root = new StackPanel { Margin = new Thickness(10, 6) };
         root.Children.Add(header);
-        root.Children.Add(summary);
+        root.Children.Add(scope);
         root.Children.Add(rows);
-        root.Children.Add(empty);
 
         Content = root;
-        return (title, total, scope, status, empty, rows);
+        _headerPanel = header;
+        return (title, scope, status, rows);
     }
 
-    private static Control MakeRow(RoomRowView item)
+    /// <summary>
+    /// 按设置应用顶部各元素的显示开关。
+    /// </summary>
+    /// <remarks>
+    /// 顶部小字会占用组件的固定高度，把下方扣分内容挤出可视区。
+    /// 这里让标题、更新时间、范围行三者都能独立关闭，把高度让给内容。
+    /// 整行都隐藏时用 <see cref="IsVisible"/> 置 false，使其完全不参与布局（高度归零），
+    /// 而不是仅把文字设空——空文字仍会占一行高度。
+    /// </remarks>
+    private void ApplyHeaderVisibility()
     {
+        var cfg = Config;
+
+        _titleBlock.IsVisible = cfg.ShowTitle;
+        _statusBlock.IsVisible = cfg.ShowUpdateTime;
+
+        // 标题与更新时间都关掉时，整行不占高度
+        if (_headerPanel != null)
+        {
+            _headerPanel.IsVisible = cfg.ShowTitle || cfg.ShowUpdateTime;
+        }
+
+        _scopeBlock.IsVisible = cfg.ShowScope;
+    }
+
+    /// <summary>
+    /// 构建一条「寝室号  扣分」。字号优先取用户设置，未设置（0）时按组件高度自适应。
+    /// </summary>
+    private Control MakeEntry(RotationItem item)
+    {
+        var size = ResolveFontSize();
+
         var room = new TextBlock
         {
-            Text = item.DisplayRoom,
-            FontSize = 13,
+            Text = item.Room,
+            FontSize = size,
             FontWeight = FontWeight.SemiBold,
-            Margin = new Thickness(0, 0, 6, 0)
-        };
-        var cls = new TextBlock
-        {
-            Text = item.ClassName,
-            FontSize = 11,
-            Opacity = 0.6,
-            Margin = new Thickness(0, 0, 6, 0),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var reason = new TextBlock
-        {
-            Text = item.Reason,
-            FontSize = 11,
-            Opacity = 0.75,
-            TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center
         };
         var score = new TextBlock
         {
             Text = item.ScoreText,
-            FontSize = 13,
+            FontSize = size,
             FontWeight = FontWeight.SemiBold,
-            Margin = new Thickness(8, 0, 0, 0)
+            Foreground = item.Score < 0 ? Brushes.IndianRed : Brushes.Gray,
+            Margin = new Thickness(10, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center
         };
 
+        // 寝室号与扣分之间留白，形成「2114   -1」的视觉效果；
+        // 用 Grid 而非固定空格，避免不同字号下空格宽度不一致。
         var grid = new Grid
         {
-            Margin = new Thickness(0, 2),
-            Opacity = item.RowOpacity,
-            ColumnDefinitions = ColumnDefinitions.Parse("Auto,Auto,*,Auto")
+            Opacity = item.IsTracked ? 1.0 : 0.8,
+            ColumnDefinitions = ColumnDefinitions.Parse("*,Auto")
         };
         Grid.SetColumn(room, 0);
-        Grid.SetColumn(cls, 1);
-        Grid.SetColumn(reason, 2);
-        Grid.SetColumn(score, 3);
+        Grid.SetColumn(score, 1);
         grid.Children.Add(room);
-        grid.Children.Add(cls);
-        grid.Children.Add(reason);
         grid.Children.Add(score);
         return grid;
+    }
+
+    /// <summary>
+    /// 解析当前应使用的字号。用户设为 0（自动）时按组件高度估算，否则用用户值。
+    /// </summary>
+    private double ResolveFontSize()
+    {
+        var configured = Config.FontSize;
+        if (configured > 1) return configured;
+
+        // 自动：以组件实际高度推算，保证在 1~3 行高度内都清晰可读
+        var h = Bounds.Height;
+        if (h <= 0) return 20;
+
+        // 组件高度减去顶部元素的实际占用，剩余给内容；轮播时一条为主
+        var usable = Math.Max(24, h - ReservedTopHeight());
+        var size = usable * 0.62;
+        return Math.Clamp(size, 14, 64);
+    }
+
+    /// <summary>
+    /// 估算顶部元素（标题行 / 范围行 / 上下边距）实际占用的高度。
+    /// 隐藏的元素不计入，从而把空间让给扣分内容。
+    /// </summary>
+    private double ReservedTopHeight()
+    {
+        var cfg = Config;
+        var reserved = 12.0; // root 上下边距 6 + 6
+
+        if (cfg.ShowTitle || cfg.ShowUpdateTime)
+        {
+            reserved += 18; // 标题行（12px 字号行高 + 余量）
+        }
+
+        if (cfg.ShowScope)
+        {
+            reserved += 17; // 范围行（11px 字号行高 + 间距）
+        }
+
+        return reserved;
     }
 
     // ------------------------------------------------------------ 生命周期
@@ -193,43 +234,67 @@ public class DormScoreComponent : ComponentBase<ComponentSettings>
 
         _cts = new CancellationTokenSource();
 
-        var cfg = Config;
-        var tracked = Plugin.Settings.GetTrackedRoomSet();
-        _scopeBlock.Text = cfg.OnlyTrackedRooms && tracked.Count == 0
-            ? $"近 {cfg.RecentDays} 天 · 全部（未设置关注寝室）"
-            : cfg.OnlyTrackedRooms
-                ? $"近 {cfg.RecentDays} 天 · 我的寝室"
-                : $"近 {cfg.RecentDays} 天 · 全部";
+        ApplyHeaderVisibility();
+        UpdateScopeText();
+        RestartRefreshTimer();
+        RestartRotateTimer();
 
-        RestartTimer();
         Log?.LogInformation("寝室扣分组件已挂载，开始首次刷新");
         _ = RefreshAsync();
     }
 
     private void OnDetached(object? sender, VisualTreeAttachmentEventArgs e)
     {
-        _timer?.Stop();
-        _timer = null;
+        _rotateTimer?.Stop();
+        _rotateTimer = null;
+        _refreshTimer?.Stop();
+        _refreshTimer = null;
 
         // 只取消、不 Dispose：避免与正在进行的刷新任务争用已释放的 Token
         _cts?.Cancel();
         _cts = null;
     }
 
-    private void RestartTimer()
+    private void RestartRefreshTimer()
     {
-        _timer?.Stop();
-        _timer = null;
+        _refreshTimer?.Stop();
+        _refreshTimer = null;
 
         var minutes = Plugin.Settings.AutoRefreshMinutes;
         if (minutes <= 0) return;
 
-        _timer = new DispatcherTimer(DispatcherPriority.Background)
+        _refreshTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
             Interval = TimeSpan.FromMinutes(minutes)
         };
-        _timer.Tick += (_, _) => _ = RefreshAsync();
-        _timer.Start();
+        _refreshTimer.Tick += (_, _) => _ = RefreshAsync();
+        _refreshTimer.Start();
+    }
+
+    private void RestartRotateTimer()
+    {
+        _rotateTimer?.Stop();
+        _rotateTimer = null;
+
+        var seconds = Config.RotateSeconds;
+        if (seconds <= 0) return; // 0 表示不轮播
+
+        _rotateTimer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = TimeSpan.FromSeconds(seconds)
+        };
+        _rotateTimer.Tick += (_, _) => AdvanceRotation();
+        _rotateTimer.Start();
+    }
+
+    /// <summary>切到下一条；到最后一条后回到第一条。</summary>
+    private void AdvanceRotation()
+    {
+        if (_queue.Count <= 1) return;
+
+        _queueIndex = (_queueIndex + 1) % _queue.Count;
+        RenderCurrent();
+        RefreshScopeWithCounter();
     }
 
     // ------------------------------------------------------------ 刷新
@@ -269,68 +334,150 @@ public class DormScoreComponent : ComponentBase<ComponentSettings>
     private void ApplyData(List<DayRecords> days)
     {
         var cfg = Config;
-        var tracked = Plugin.Settings.GetTrackedRoomSet();
+        var tracked = Plugin.Settings.GetTrackedClassSet();
 
-        // 关键防御：开启「只显示关注寝室」但没配置任何寝室号时，自动回退显示全部，
+        // 关键防御：开启「只显示关注班级」但没配置任何班级时，自动回退显示全部，
         // 否则筛选结果恒为空，主界面永远空白。
         var noTrackedConfigured = tracked.Count == 0;
-        var effectiveOnlyTracked = cfg.OnlyTrackedRooms && !noTrackedConfigured;
+        var effectiveOnlyTracked = cfg.OnlyTrackedClasses && !noTrackedConfigured;
 
         var all = DormScoreService.AggregateByRoom(days, tracked);
         var shown = effectiveOnlyTracked ? all.Where(x => x.IsTracked).ToList() : all;
 
-        _rowsPanel.Children.Clear();
-        foreach (var item in shown.Take(cfg.MaxRows))
+        // 本次抓取成功进入数据渲染，清空上一次的错误提示
+        _lastEmpty = "";
+
+        // 抓取过程中出现的单日失败，作为提示保留（不影响已有数据展示）
+        var firstError = days.Select(d => d.Error).FirstOrDefault(e => !string.IsNullOrEmpty(e));
+        var totalRecords = days.Sum(d => d.Records.Count);
+        if (totalRecords == 0 && firstError != null)
         {
-            _rowsPanel.Children.Add(MakeRow(new RoomRowView
-            {
-                DisplayRoom = (item.IsTracked ? "★ " : "") + item.Room,
-                ClassName = cfg.ShowClassName ? item.ClassName : "",
-                Reason = cfg.ShowReason ? ReasonTextOf(days, item) : "",
-                ScoreText = FormatScore(item.TotalScore),
-                IsTracked = item.IsTracked,
-                RowOpacity = item.IsTracked ? 1.0 : 0.75
-            }));
+            _lastEmpty = $"未获取到扣分数据：{firstError}";
         }
 
-        var total = shown.Sum(x => x.TotalScore);
-        _totalBlock.Text = FormatScore(total);
-        _totalBlock.Foreground = total < 0 ? Brushes.IndianRed : Brushes.Gray;
+        _queue = shown
+            .Select(x => new RotationItem
+            {
+                Room = x.Room,
+                ClassName = x.ClassName,
+                Score = x.TotalScore,
+                ScoreText = FormatScore(x.TotalScore),
+                IsTracked = x.IsTracked,
+                Reason = ReasonTextOf(days, x)
+            })
+            .ToList();
+
+        // 数据刷新后从第一条重新开始，避免索引越界
+        _queueIndex = 0;
+        RenderCurrent();
 
         var cachedDays = days.Count(d => d.FromCache);
         var failedDays = days.Count(d => !string.IsNullOrEmpty(d.Error));
 
-        _statusBlock.Text = failedDays > 0
-            ? $"更新于 {DateTime.Now:HH:mm}（{failedDays} 天获取失败）"
-            : cachedDays > 0
-                ? $"更新于 {DateTime.Now:HH:mm}（{cachedDays} 天来自缓存）"
-                : $"更新于 {DateTime.Now:HH:mm}";
+        ApplyHeaderVisibility();
+        _statusBlock.Text = BuildStatusText(days, cachedDays, failedDays);
 
-        _scopeBlock.Text = effectiveOnlyTracked ? $"近 {cfg.RecentDays} 天 · 我的寝室" : $"近 {cfg.RecentDays} 天 · 全部";
+        UpdateScopeText();
+    }
 
-        var firstError = days.Select(d => d.Error).FirstOrDefault(e => !string.IsNullOrEmpty(e));
-        var totalRecords = days.Sum(d => d.Records.Count);
+    /// <summary>
+    /// 生成右上角状态文案。
+    /// </summary>
+    /// <remarks>
+    /// 「更新于」显示的是<strong>扣分文章的发布时间</strong>（取所抓文章中最新的那篇），
+    /// 而不是本地抓取时刻——后者每次刷新都会变，会让人误以为数据是刚发布的。
+    /// 解析不到发布时间时才退回本地时刻。
+    /// </remarks>
+    private static string BuildStatusText(List<DayRecords> days, int cachedDays, int failedDays)
+    {
+        var published = days
+            .Where(d => d.PublishedAt.HasValue)
+            .Select(d => d.PublishedAt!.Value)
+            .DefaultIfEmpty()
+            .Max();
 
-        if (_rowsPanel.Children.Count == 0)
+        string stamp;
+        if (published > default)
         {
-            _emptyBlock.Text = totalRecords == 0 && firstError != null
-                ? $"未获取到扣分数据：{firstError}"
-                : totalRecords == 0
-                    ? "所选范围内没有扣分记录。"
-                    : "所选范围内没有符合条件的寝室。";
-        }
-        else if (noTrackedConfigured)
-        {
-            _emptyBlock.Text = "未设置关注的寝室号，当前显示全部寝室。可在插件设置中填写。";
-        }
-        else if (failedDays > 0 && firstError != null)
-        {
-            _emptyBlock.Text = $"{failedDays} 天获取失败：{firstError}";
+            // 同一天的文章不显示年份，避免「更新于 2026/10/08」过长挤掉标题
+            stamp = published.Year == DateTime.Today.Year
+                ? published.ToString("MM-dd HH:mm")
+                : published.ToString("yyyy-MM-dd HH:mm");
         }
         else
         {
-            _emptyBlock.Text = "";
+            stamp = DateTime.Now.ToString("HH:mm");
         }
+
+        if (failedDays > 0) return $"更新于 {stamp}（{failedDays} 天失败）";
+        if (cachedDays > 0) return $"更新于 {stamp}（{cachedDays} 天缓存）";
+        return $"更新于 {stamp}";
+    }
+
+    /// <summary>
+    /// 渲染当前这一条（含空态与错误提示）。
+    /// </summary>
+    private void RenderCurrent()
+    {
+        // 每次渲染都重算顶部显隐：开关是即时生效的，改完无需重启/刷新
+        ApplyHeaderVisibility();
+
+        _rowsPanel.Children.Clear();
+
+        if (_queue.Count == 0)
+        {
+            _rowsPanel.Children.Add(new TextBlock
+            {
+                Text = EmptyText(),
+                FontSize = 11,
+                Opacity = 0.6,
+                TextWrapping = TextWrapping.Wrap
+            });
+            return;
+        }
+
+        _rowsPanel.Children.Add(MakeEntry(_queue[_queueIndex]));
+    }
+
+    private string _scopeBase = "";
+
+    private string _lastEmpty = "";
+
+    private void UpdateScopeText()
+    {
+        var cfg = Config;
+        var tracked = Plugin.Settings.GetTrackedClassSet();
+        var effectiveOnlyTracked = cfg.OnlyTrackedClasses && tracked.Count > 0;
+
+        _scopeBase = effectiveOnlyTracked ? $"近 {cfg.RecentDays} 天 · 我的班级" : $"近 {cfg.RecentDays} 天 · 全部";
+        RefreshScopeWithCounter();
+    }
+
+    /// <summary>范围文案附上「第 n/N 条」，让人知道正在轮播。</summary>
+    private void RefreshScopeWithCounter()
+    {
+        if (_queue.Count > 1)
+        {
+            _scopeBlock.Text = $"{_scopeBase} · {_queueIndex + 1}/{_queue.Count}";
+        }
+        else
+        {
+            _scopeBlock.Text = _scopeBase;
+        }
+    }
+
+    private string EmptyText()
+    {
+        // 刷新失败时优先显示真实原因，避免用户误以为「只是没有记录」
+        if (_lastEmpty.Length > 0) return _lastEmpty;
+
+        var cfg = Config;
+        var tracked = Plugin.Settings.GetTrackedClassSet();
+        if (tracked.Count == 0 && cfg.OnlyTrackedClasses)
+        {
+            return "未设置关注的班级，当前显示全部。可在插件设置中填写。";
+        }
+        return "所选范围内没有扣分记录。";
     }
 
     // ------------------------------------------------------------ 工具
@@ -338,7 +485,7 @@ public class DormScoreComponent : ComponentBase<ComponentSettings>
     private void SetStatus(string status, string empty)
     {
         _statusBlock.Text = status;
-        _emptyBlock.Text = empty;
+        _lastEmpty = empty ?? "";
     }
 
     private void SetStatusSafe(string status, string empty)
@@ -371,5 +518,16 @@ public class DormScoreComponent : ComponentBase<ComponentSettings>
     {
         if (Math.Abs(score) < 0.0001) return "0";
         return score.ToString("0.#", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>轮播队列中的一条。</summary>
+    private class RotationItem
+    {
+        public string Room { get; set; } = "";
+        public string ClassName { get; set; } = "";
+        public string Reason { get; set; } = "";
+        public double Score { get; set; }
+        public string ScoreText { get; set; } = "";
+        public bool IsTracked { get; set; }
     }
 }

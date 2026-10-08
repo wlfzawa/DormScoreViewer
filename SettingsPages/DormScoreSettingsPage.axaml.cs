@@ -12,7 +12,7 @@ using DormScoreViewer.Services;
 namespace DormScoreViewer.SettingsPages;
 
 /// <summary>
-/// 插件设置页面：配置数据源、关注的寝室与网络参数。
+/// 插件设置页面：配置数据源、关注的班级与网络参数。
 /// </summary>
 [SettingsPageInfo("dorm.score.viewer.settings", "寝室扣分")]
 public partial class DormScoreSettingsPage : SettingsPageBase, INotifyPropertyChanged
@@ -47,10 +47,10 @@ public partial class DormScoreSettingsPage : SettingsPageBase, INotifyPropertyCh
         set => Plugin.Settings.ArticleUrlPattern = value;
     }
 
-    public string TrackedRooms
+    public string TrackedClasses
     {
-        get => Plugin.Settings.TrackedRooms;
-        set => Plugin.Settings.TrackedRooms = value;
+        get => Plugin.Settings.TrackedClasses;
+        set => Plugin.Settings.TrackedClasses = value;
     }
 
     public string TimeoutText
