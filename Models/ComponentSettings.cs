@@ -44,15 +44,18 @@ public class ComponentSettings
     // 组件顶部有两处「小字」：标题行（标题 + 更新时间）与范围行（近 N 天 · 轮播进度）。
     // 它们会占用组件的固定高度，把下方真正的扣分内容挤出可视区（表现为内容被小字遮挡/裁掉）。
     // 下面三个开关可分别隐藏它们，把有限高度让给扣分内容；全部关闭时内容独占整个组件。
+    //
+    // 默认值只保留标题「寝室扣分」：它是组件的身份标识，缺失后容易分不清是什么组件；
+    // 而更新时间与范围行属于辅助信息，默认隐藏以把高度优先让给扣分内容（可按需在设置中打开）。
 
-    /// <summary>显示标题「寝室扣分」。</summary>
+    /// <summary>显示标题「寝室扣分」。默认开启。</summary>
     public bool ShowTitle { get; set; } = true;
 
-    /// <summary>显示更新时间（取扣分文章的发布时间）。</summary>
-    public bool ShowUpdateTime { get; set; } = true;
+    /// <summary>显示更新时间（取扣分文章的发布时间）。默认关闭以节省高度。</summary>
+    public bool ShowUpdateTime { get; set; }
 
-    /// <summary>显示范围行（近 N 天 · 我的班级 · 第 n/N 条）。</summary>
-    public bool ShowScope { get; set; } = true;
+    /// <summary>显示范围行（近 N 天 · 我的班级 · 第 n/N 条）。默认关闭以节省高度。</summary>
+    public bool ShowScope { get; set; }
 
     /// <summary>顶部标题行是否整体可见（标题或更新时间任一开启即显示该行）。</summary>
     public bool ShowHeaderLine => ShowTitle || ShowUpdateTime;

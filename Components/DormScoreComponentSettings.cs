@@ -67,6 +67,15 @@ public class DormScoreComponentSettings : ComponentBase<ComponentSettings>
 
         panel.Children.Add(new TextBlock
         {
+            Text = "提示：默认只显示标题。若组件高度较小、扣分内容显示不全，可关闭上面两项，把高度让给内容。",
+            FontSize = 11,
+            Opacity = 0.55,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0)
+        });
+
+        panel.Children.Add(new TextBlock
+        {
             Text = "关注的班级在插件设置页面填写，用逗号分隔（例如：高一(1)班, 高三(2)班）。",
             FontSize = 11,
             Opacity = 0.55,
