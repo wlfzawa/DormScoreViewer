@@ -1,0 +1,51 @@
+# 自动把 Gitee 的更新同步到 GitHub。
+# Gitee 是源，GitHub 是镜像：你只管往 Gitee 推，GitHub 由本工作流自动跟随。
+#
+# 触发方式：
+#   1. 定时：每 5 分钟从 Gitee 拉取一次（GitHub Actions 的最小粒度）
+#   2. 手动：在仓库 Actions 页面点 "Run workflow" 立即同步
+#
+# 必要条件（在 GitHub 仓库 Settings → Secrets and variables → Actions 中添加）：
+#   GITEE_TOKEN  —— 一个具备 Gitee 仓库只读/读写权限的个人访问令牌（projects）
+# GitHub 侧推送使用的 GITHUB_TOKEN 由运行环境自动注入，无需配置。
+
+name: Sync from Gitee
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+# 允许工作流把代码推回本仓库
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout GitHub repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Sync Gitee master -> GitHub main
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+
+          # 从 Gitee 拉取 master（用密钥鉴权，不写入 ~/.git-credentials）
+          git remote add gitee "https://oauth2:${GITEE_TOKEN}@gitee.com/wlfzawa/DormScoreViewer.git"
+          git fetch gitee master:gitee-master
+
+          # 把 Gitee 的 master 强制推送到 GitHub 的 main（GitHub 是镜像，直接覆盖）
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/wlfzawa/DormScoreViewer.git" \
+            gitee-master:refs/heads/main --force
+
+          echo "✅ 已从 Gitee 同步到 GitHub main"
