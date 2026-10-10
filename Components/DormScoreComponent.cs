@@ -164,7 +164,8 @@ public class DormScoreComponent : ComponentBase<ComponentSettings>
             Text = item.ScoreText,
             FontSize = size,
             FontWeight = FontWeight.SemiBold,
-            Foreground = item.Score < 0 ? Brushes.IndianRed : Brushes.Gray,
+            // 扣分数值与寝室号使用同一种颜色（继承默认前景色），
+            // 避免红色在某些主题下刺眼或与背景对比不足。
             Margin = new Thickness(10, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -180,7 +181,29 @@ public class DormScoreComponent : ComponentBase<ComponentSettings>
         Grid.SetColumn(score, 1);
         grid.Children.Add(room);
         grid.Children.Add(score);
-        return grid;
+
+        // 未开启「显示扣分原因」时只返回一行，保持原有紧凑布局
+        if (!Config.ShowReason || string.IsNullOrWhiteSpace(item.Reason))
+        {
+            return grid;
+        }
+
+        // 开启原因显示：在「寝室号 扣分」下方追加一行小字原因。
+        // 原因用较小字号并降低不透明度，让扣分主体依然第一眼可读。
+        var reason = new TextBlock
+        {
+            Text = item.Reason,
+            FontSize = Math.Max(10, size * 0.62),
+            Opacity = 0.65,
+            Margin = new Thickness(0, 1, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxLines = 1
+        };
+
+        var stack = new StackPanel();
+        stack.Children.Add(grid);
+        stack.Children.Add(reason);
+        return stack;
     }
 
     /// <summary>
@@ -197,7 +220,11 @@ public class DormScoreComponent : ComponentBase<ComponentSettings>
 
         // 组件高度减去顶部元素的实际占用，剩余给内容；轮播时一条为主
         var usable = Math.Max(24, h - ReservedTopHeight());
-        var size = usable * 0.62;
+
+        // 行高系数：TextBlock 行高约为字号的 1.25 倍。
+        // 未开启原因显示时一条记录占 1 行；开启后追加一行小字原因（字号为主字号的 0.62 倍）。
+        var lineFactor = Config.ShowReason ? 1.25 + 1.25 * 0.62 : 1.25;
+        var size = usable / lineFactor;
         return Math.Clamp(size, 14, 64);
     }
 
@@ -514,10 +541,30 @@ public class DormScoreComponent : ComponentBase<ComponentSettings>
         return reasons.Count > 1 ? $"{first} 等 {reasons.Count} 项" : first;
     }
 
+    /// <summary>
+    /// 格式化扣分数值。要求：
+    /// <list type="bullet">
+    /// <item>非零即带负号（扣分语义），如 -1、-0.5；</item>
+    /// <item>小数保留必要位数，不把 -0.5 截成 -0 或 -1；</item>
+    /// <item>整数不显示多余小数点，如 -1 而不是 -1.0。</item>
+    /// </list>
+    /// </summary>
     private static string FormatScore(double score)
     {
-        if (Math.Abs(score) < 0.0001) return "0";
-        return score.ToString("0.#", CultureInfo.InvariantCulture);
+        // 先按四舍五入规整到最多两位小数，消除浮点误差（如 0.30000000000000004）
+        var rounded = Math.Round(score, 2, MidpointRounding.AwayFromZero);
+
+        // 约等于 0（含 -0）时直接显示 0，不出现 "-0"
+        if (Math.Abs(rounded) < 0.005) return "0";
+
+        // 用自定义格式：整数不带小数点，小数最多两位且去掉末尾多余的 0
+        // "0.##"：0 -> "0"，1 -> "1"，-1 -> "-1"，-0.5 -> "-0.5"，-1.50 -> "-1.5"
+        var text = Math.Abs(rounded % 1) < 0.005
+            ? Math.Abs(rounded).ToString("0", CultureInfo.InvariantCulture)
+            : Math.Abs(rounded).ToString("0.##", CultureInfo.InvariantCulture);
+
+        // 扣分统一显示为负数：正数也补上负号，符合「扣分」语义
+        return "-" + text;
     }
 
     /// <summary>轮播队列中的一条。</summary>

@@ -302,9 +302,13 @@ public class DormScoreService
                 }
 
                 if (string.IsNullOrWhiteSpace(room)) continue;
-                if (!double.TryParse(scoreText.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture,
+
+                // 分数文本先做符号归一：网页里常见全角减号「－」、Unicode 减号「−」、
+                // 不换行连字符等，double.TryParse 无法识别，会导致整行被静默丢弃。
+                var scoreRaw = NormalizeMinus(scoreText.Trim());
+                if (!double.TryParse(scoreRaw, NumberStyles.Float, CultureInfo.InvariantCulture,
                         out var score)
-                    && !double.TryParse(scoreText.Trim(), NumberStyles.Float, CultureInfo.CurrentCulture, out score))
+                    && !double.TryParse(scoreRaw, NumberStyles.Float, CultureInfo.CurrentCulture, out score))
                 {
                     continue;
                 }
@@ -328,6 +332,23 @@ public class DormScoreService
         }
 
         return new List<DormRecord>();
+    }
+
+    /// <summary>
+    /// 把分数文本里的各种「减号」统一成 ASCII 半角负号 '-'
+    /// （网页/ Excel 导出常见全角「－」、Unicode「−」、半角减号等）。
+    /// </summary>
+    public static string NormalizeMinus(string? s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "";
+        var t = s.Trim();
+        // 各类减号/破折号统一替换
+        return t.Replace('－', '-')   // 全角减号 U+FF0D
+                .Replace('−', '-')   // Unicode 减号 U+2212
+                .Replace('–', '-')   // en dash U+2013
+                .Replace('—', '-')   // em dash U+2014
+                .Replace('﹣', '-')   // 小型减号 U+FE63
+                .Replace('－', '-');  // 表意减号 U+FF0D
     }
 
     private static void PropagateClassName(List<DormRecord> records)

@@ -65,6 +65,9 @@ public class DormScoreComponentSettings : ComponentBase<ComponentSettings>
         panel.Children.Add(MakeCheck("显示更新时间（扣分文章发布时间）", cfg.ShowUpdateTime, v => cfg.ShowUpdateTime = v));
         panel.Children.Add(MakeCheck("显示范围行（近 N 天 · 第 n/N 条）", cfg.ShowScope, v => cfg.ShowScope = v));
 
+        panel.Children.Add(Label("内容显示"));
+        panel.Children.Add(MakeCheck("显示扣分原因（在寝室号下方追加一行小字）", cfg.ShowReason, v => cfg.ShowReason = v));
+
         panel.Children.Add(new TextBlock
         {
             Text = "提示：默认只显示标题。若组件高度较小、扣分内容显示不全，可关闭上面两项，把高度让给内容。",

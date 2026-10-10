@@ -59,4 +59,10 @@ public class ComponentSettings
 
     /// <summary>顶部标题行是否整体可见（标题或更新时间任一开启即显示该行）。</summary>
     public bool ShowHeaderLine => ShowTitle || ShowUpdateTime;
+
+    /// <summary>
+    /// 是否在「寝室号 扣分」下方追加一行小字显示扣分原因。
+    /// 默认关闭——开启后每条记录会多占一行高度，小组件里容易把扣分主体挤出可视区。
+    /// </summary>
+    public bool ShowReason { get; set; }
 }
