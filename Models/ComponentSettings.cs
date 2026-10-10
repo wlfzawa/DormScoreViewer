@@ -61,8 +61,8 @@ public class ComponentSettings
     public bool ShowHeaderLine => ShowTitle || ShowUpdateTime;
 
     /// <summary>
-    /// 是否在「寝室号 扣分」下方追加一行小字显示扣分原因。
-    /// 默认关闭——开启后每条记录会多占一行高度，小组件里容易把扣分主体挤出可视区。
+    /// 是否在扣分数字后面显示扣分原因（同行小字，超长以省略号截断）。
+    /// 默认关闭——组件较窄时原因会被大量截断，反而看不清扣分主体。
     /// </summary>
     public bool ShowReason { get; set; }
 }

@@ -170,40 +170,39 @@ public class DormScoreComponent : ComponentBase<ComponentSettings>
             VerticalAlignment = VerticalAlignment.Center
         };
 
-        // 寝室号与扣分之间留白，形成「2114   -1」的视觉效果；
-        // 用 Grid 而非固定空格，避免不同字号下空格宽度不一致。
+        // 寝室号、扣分、原因同处一行：列宽按Auto,Auto,*分配，
+        // 原因占据剩余空间并在超出时以省略号截断，避免把扣分数字挤出可视区。
         var grid = new Grid
         {
             Opacity = item.IsTracked ? 1.0 : 0.8,
-            ColumnDefinitions = ColumnDefinitions.Parse("*,Auto")
+            ColumnDefinitions = ColumnDefinitions.Parse("Auto,Auto,*")
         };
         Grid.SetColumn(room, 0);
         Grid.SetColumn(score, 1);
         grid.Children.Add(room);
         grid.Children.Add(score);
 
-        // 未开启「显示扣分原因」时只返回一行，保持原有紧凑布局
+        // 未开启「显示扣分原因」或该条没有原因时，只显示「寝室号 扣分」
         if (!Config.ShowReason || string.IsNullOrWhiteSpace(item.Reason))
         {
             return grid;
         }
 
-        // 开启原因显示：在「寝室号 扣分」下方追加一行小字原因。
-        // 原因用较小字号并降低不透明度，让扣分主体依然第一眼可读。
+        // 原因紧跟在扣分数字后面，同一行向右延伸。
+        // 用较小字号并降低不透明度，让扣分主体依然第一眼可读。
         var reason = new TextBlock
         {
             Text = item.Reason,
             FontSize = Math.Max(10, size * 0.62),
             Opacity = 0.65,
-            Margin = new Thickness(0, 1, 0, 0),
+            Margin = new Thickness(8, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxLines = 1
         };
-
-        var stack = new StackPanel();
-        stack.Children.Add(grid);
-        stack.Children.Add(reason);
-        return stack;
+        Grid.SetColumn(reason, 2);
+        grid.Children.Add(reason);
+        return grid;
     }
 
     /// <summary>
@@ -221,10 +220,9 @@ public class DormScoreComponent : ComponentBase<ComponentSettings>
         // 组件高度减去顶部元素的实际占用，剩余给内容；轮播时一条为主
         var usable = Math.Max(24, h - ReservedTopHeight());
 
-        // 行高系数：TextBlock 行高约为字号的 1.25 倍。
-        // 未开启原因显示时一条记录占 1 行；开启后追加一行小字原因（字号为主字号的 0.62 倍）。
-        var lineFactor = Config.ShowReason ? 1.25 + 1.25 * 0.62 : 1.25;
-        var size = usable / lineFactor;
+        // 原因与扣分同行显示，记录始终只占 1 行，故行高系数固定为 1.25。
+        // （原因字号更小且垂直居中，不会增加行高）
+        var size = usable / 1.25;
         return Math.Clamp(size, 14, 64);
     }
 
